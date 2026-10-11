@@ -15,17 +15,34 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: ndk
-        with:
-          ndk-version: 27.3.13750724
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Build module
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+      - name: Install NDK
         run: |
           set -euo pipefail
+          echo "=== available ndk packages ==="
+          sdkmanager --list 2>/dev/null | grep -oE 'ndk;[0-9]+\.[0-9]+\.[0-9]+' | sort -u || true
+          NDK_HOME=""
+          for v in 27.3.13750724 27.2.12479018 27.1.12297006 27.0.12077973 26.3.11579264; do
+            if sdkmanager --install "ndk;$v" >/dev/null 2>&1; then
+              NDK_HOME="$ANDROID_SDK_ROOT/ndk/$v"
+              echo "installed: ndk;$v"
+              break
+            fi
+          done
+          [ -n "$NDK_HOME" ] || { echo "could not install any NDK"; exit 1; }
+          echo "ANDROID_NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+          ls "$NDK_HOME/toolchains/llvm/prebuilt/"
+
+      - name: Build module
+        run: |
+          set -euo pipefail
+          echo "NDK=$ANDROID_NDK_HOME"
+          # Upstream build.py hardcodes a Windows NDK layout; retarget it to Linux.
+          sed -i 's|windows-x86_64|linux-x86_64|g; s|clang++\.exe|clang++|g; s|llvm-readelf\.exe|llvm-readelf|g' \
+            tools/uid-seccomp-module/build.py
+          grep -n 'prebuilt\|clang++\|readelf' tools/uid-seccomp-module/build.py
           python tools/uid-seccomp-module/build.py --module-only
           echo "=== build tree ==="
           find build -type f -printf '%p  %s bytes\n' | sort
@@ -36,5 +53,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: uid-filter-module
-          path: build/**/*.zip
+          path: |
+            build/**/*.zip
+            build/**/*.sha256
+            build/**/artifacts.json
           if-no-files-found: error
