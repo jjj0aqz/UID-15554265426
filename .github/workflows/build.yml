@@ -1,0 +1,40 @@
+name: Build UID Filter module
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: 27.3.13750724
+
+      - name: Build module
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          python tools/uid-seccomp-module/build.py --module-only
+          echo "=== build tree ==="
+          find build -type f -printf '%p  %s bytes\n' | sort
+          echo "=== sha256 ==="
+          sha256sum build/*/*.zip
+
+      - name: Upload module zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: uid-filter-module
+          path: build/**/*.zip
+          if-no-files-found: error
